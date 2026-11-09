@@ -14284,6 +14284,162 @@ namespace CapriDesktop
             finally { image.UnlockBits(data); }
         }
 
+        // #214: what one frame of hers costs on this PC, and what the same frame costs drawn other ways, with how far each other
+        // way's pixels are from hers. The table and a picture of each way go in the output folder, to choose a way by.
+        private void SmokeFrameCost(System.Collections.Generic.List<string> checks, string output)
+        {
+            Directory.CreateDirectory(output);
+            bool motionWas = preferences.Motion, veiledWas = veiled, leftWas = facingLeft;
+            double veilWas = veilUntil;
+            Bitmap[] cells = null;
+            System.Globalization.CultureInfo plain = System.Globalization.CultureInfo.InvariantCulture;
+            try
+            {
+                veiled = false;
+                veilUntil = -1;
+                facingLeft = false;
+                const int Frames = 120;
+                Func<Clip, double> drawCost = delegate(Clip shown)
+                {
+                    using (Native.Surface surface = new Native.Surface(Width, Height))
+                    {
+                        Stopwatch watch = new Stopwatch();
+                        for (int i = 0; i < Frames + 10; i++)
+                        {
+                            if (i == 10) watch.Start();
+                            using (Graphics graphics = Graphics.FromImage(surface.Image))
+                            {
+                                graphics.Clear(Color.Transparent);
+                                Draw(graphics, shown, i % shown.Count);
+                            }
+                        }
+                        return watch.Elapsed.TotalMilliseconds / Frames;
+                    }
+                };
+                preferences.Motion = true;
+                double standing = drawCost(idle), sitting = drawCost(perch), showing;
+                using (Native.Surface surface = new Native.Surface(Width, Height))
+                {
+                    using (Graphics graphics = Graphics.FromImage(surface.Image)) { graphics.Clear(Color.Transparent); Draw(graphics, idle, 0); }
+                    Stopwatch watch = Stopwatch.StartNew();
+                    for (int i = 0; i < Frames; i++) surface.Show(Handle, anchor);
+                    showing = watch.Elapsed.TotalMilliseconds / Frames;
+                }
+                if (bodySurface != null) bodySurface.Show(Handle, anchor);
+
+                Bitmap strip = idle.Strip;
+                int cellWide = strip.Width / idle.Count;
+                float tall = preferences.Size * idle.Height, wide = tall * cellWide / strip.Height;
+                RectangleF place = new RectangleF(-wide / 2f + idle.ShiftX * preferences.Size, -tall / 2f + idle.ShiftY * preferences.Size, wide, tall);
+                cells = new Bitmap[idle.Count];
+                Stopwatch caching = Stopwatch.StartNew();
+                for (int i = 0; i < cells.Length; i++)
+                {
+                    cells[i] = new Bitmap((int)Math.Ceiling(wide), (int)Math.Ceiling(tall), PixelFormat.Format32bppPArgb);
+                    using (Graphics graphics = Graphics.FromImage(cells[i]))
+                    {
+                        graphics.CompositingMode = CompositingMode.SourceCopy;
+                        graphics.InterpolationMode = InterpolationMode.HighQualityBicubic;
+                        graphics.PixelOffsetMode = PixelOffsetMode.HighQuality;
+                        graphics.DrawImage(strip, new RectangleF(0, 0, wide, tall), new RectangleF(i * cellWide, 0, cellWide, strip.Height), GraphicsUnit.Pixel);
+                    }
+                }
+                double cachedIn = caching.Elapsed.TotalMilliseconds;
+                long cachedBytes = (long)cells[0].Width * cells[0].Height * 4 * cells.Length;
+                string[] ways = { "hers now: gamma-correct blending, bicubic from her strip", "no gamma-correct blending, bicubic from her strip", "no gamma-correct blending, bilinear from her strip", "cells scaled once with bicubic, then bilinear", "cells scaled once with bicubic, drawn still" };
+                Bitmap[] held = cells;
+                Action<Graphics, int, int, float, float> paint = delegate(Graphics graphics, int way, int cell, float angle, float breathe)
+                {
+                    graphics.Clear(Color.Transparent);
+                    graphics.CompositingMode = CompositingMode.SourceOver;
+                    graphics.CompositingQuality = way == 0 ? CompositingQuality.HighQuality : CompositingQuality.HighSpeed;
+                    graphics.InterpolationMode = way <= 1 ? InterpolationMode.HighQualityBicubic : way == 2 ? InterpolationMode.HighQualityBilinear : InterpolationMode.Bilinear;
+                    graphics.PixelOffsetMode = PixelOffsetMode.HighQuality;
+                    graphics.SmoothingMode = SmoothingMode.HighQuality;
+                    if (way == 4) { graphics.DrawImageUnscaled(held[cell], (int)Math.Round(Width / 2f + place.X), (int)Math.Round(Height / 2f + breathe + place.Y)); return; }
+                    graphics.TranslateTransform(Width / 2f, Height / 2f + breathe);
+                    graphics.RotateTransform(angle);
+                    if (way <= 2) graphics.DrawImage(strip, place, new RectangleF(cell * cellWide, 0, cellWide, strip.Height), GraphicsUnit.Pixel);
+                    else graphics.DrawImage(held[cell], place, new RectangleF(0, 0, wide, tall), GraphicsUnit.Pixel);
+                };
+                Func<int, int, float, float, string, int[]> shot = delegate(int way, int cell, float angle, float breathe, string picture)
+                {
+                    using (Native.Surface surface = new Native.Surface(Width, Height))
+                    {
+                        using (Graphics graphics = Graphics.FromImage(surface.Image)) paint(graphics, way, cell, angle, breathe);
+                        int[] got = new int[Width * Height];
+                        Pixels(surface.Image, new Rectangle(0, 0, Width, Height), got, false);
+                        if (picture != null) surface.Image.Save(Path.Combine(output, picture), ImageFormat.Png);
+                        return got;
+                    }
+                };
+
+                // Her real Draw, still and facing right, against way 0 still: the same pixels, or the table below isn't about her.
+                int[] real = new int[Width * Height];
+                preferences.Motion = false;
+                using (Native.Surface surface = new Native.Surface(Width, Height))
+                {
+                    using (Graphics graphics = Graphics.FromImage(surface.Image)) { graphics.Clear(Color.Transparent); Draw(graphics, idle, 5); }
+                    Pixels(surface.Image, new Rectangle(0, 0, Width, Height), real, false);
+                }
+                int[] copy = shot(0, 5, 0, 0, null);
+                int replicaOff = 0;
+                for (int i = 0; i < real.Length; i++) if (real[i] != copy[i]) replicaOff++;
+
+                System.Collections.Generic.List<string> table = new System.Collections.Generic.List<string>();
+                table.Add("Her frame at size " + preferences.Size + " in a " + Width + " x " + Height + " window: Draw " + standing.ToString("0.00", plain) + " ms standing, " + sitting.ToString("0.00", plain) + " ms sitting, UpdateLayeredWindow " + showing.ToString("0.00", plain) + " ms");
+                table.Add("Way 0 against her real Draw, still: " + replicaOff + " of " + real.Length + " pixels differ");
+                table.Add("Cells scaled once: " + cachedIn.ToString("0", plain) + " ms for all " + cells.Length + ", " + (cachedBytes / 1024) + " KB held");
+                table.Add("way\tms a frame\tmean channel difference\tlargest channel difference\tpixels off by more than 8\twhat");
+                using (Native.Surface surface = new Native.Surface(Width, Height))
+                    for (int way = 0; way < ways.Length; way++)
+                    {
+                        Stopwatch watch = new Stopwatch();
+                        for (int i = 0; i < Frames + 10; i++)
+                        {
+                            if (i == 10) watch.Start();
+                            using (Graphics graphics = Graphics.FromImage(surface.Image)) paint(graphics, way, i % idle.Count, (float)Math.Sin(i * 0.05) * 0.65f, (float)Math.Sin(i * 0.09) * 2.2f);
+                        }
+                        double cost = watch.Elapsed.TotalMilliseconds / Frames;
+                        long total = 0, counted = 0;
+                        int largest = 0, off = 0;
+                        // Drawn still, a way can only be told from hers still: at the tilt it can't draw, it would differ by the tilt.
+                        bool still = way == 4;
+                        foreach (int cell in new[] { 0, 17, 33, 48 })
+                        {
+                            float angle = still ? 0 : 0.4f, breathe = still ? 1 : 1.3f;
+                            int[] theirs = shot(0, cell, angle, breathe, null), mine = shot(way, cell, angle, breathe, cell == 0 ? "way-" + way + ".png" : null);
+                            for (int i = 0; i < theirs.Length; i++)
+                            {
+                                if (theirs[i] == 0 && mine[i] == 0) continue;
+                                int worst = 0;
+                                for (int shift = 0; shift < 32; shift += 8)
+                                {
+                                    int gap = Math.Abs(((theirs[i] >> shift) & 255) - ((mine[i] >> shift) & 255));
+                                    total += gap;
+                                    counted++;
+                                    worst = Math.Max(worst, gap);
+                                }
+                                largest = Math.Max(largest, worst);
+                                if (worst > 8) off++;
+                            }
+                        }
+                        table.Add(way + "\t" + cost.ToString("0.00", plain) + "\t" + (counted == 0 ? 0 : (double)total / counted).ToString("0.000", plain) + "\t" + largest + "\t" + off + "\t" + ways[way]);
+                    }
+                File.WriteAllLines(Path.Combine(output, "frame-cost.txt"), table.ToArray());
+                checks.Add((Math.Max(standing, sitting) + showing <= 33 ? "PASS" : "LIMIT") + " her frame here: " + standing.ToString("0.00", plain) + " ms to draw standing, " + sitting.ToString("0.00", plain) + " ms sitting and " + showing.ToString("0.00", plain) + " ms to show; other ways to draw it are in frame-cost.txt");
+            }
+            finally
+            {
+                if (cells != null) foreach (Bitmap cell in cells) if (cell != null) cell.Dispose();
+                preferences.Motion = motionWas;
+                veiled = veiledWas;
+                veilUntil = veilWas;
+                facingLeft = leftWas;
+                if (bodySurface != null) bodySurface.Show(Handle, anchor);
+            }
+        }
+
         internal void Say(string text)
         {
             speech = string.IsNullOrEmpty(text) ? null : text;
@@ -33244,6 +33400,7 @@ namespace CapriDesktop
             Section(checks, "SmokeStanding", delegate { string standOut = Path.Combine(output, "standing"); Directory.CreateDirectory(standOut); CheckStanding(checks, standOut); });
             Section(checks, "SmokeLegacyStand", delegate { string legacyOut = Path.Combine(output, "legacy-stand"); Directory.CreateDirectory(legacyOut); CheckLegacyStand(checks, legacyOut); });
             Section(checks, "SmokeClickEffect", delegate { SmokeClickEffect(checks, output); });
+            Section(checks, "SmokeFrameCost", delegate { SmokeFrameCost(checks, Path.Combine(output, "frame-cost")); });
             Section(checks, "SmokeMedium", delegate { SmokeMedium(checks, Path.Combine(output, "medium")); });
             Section(checks, "SmokeThrows", delegate { SmokeThrows(checks); });
             Section(checks, "SmokeBrainBodies", delegate { SmokeBrainBodies(checks); });
