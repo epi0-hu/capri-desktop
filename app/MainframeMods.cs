@@ -229,6 +229,8 @@ namespace CapriDesktop
                     ModSays("Not imported. Nothing ran.", false);
                     return false;
                 }
+                // Their own copy replaced the one an update was waiting for, so that update isn't waiting any more.
+                UpdateDone(mod.File.Id, null);
                 FillMods();
                 ModSays(mod.Code ? mod.File.Name + " is on and running." : mod.Skill ? mod.File.Name + " is on. She uses it when she plays " + mod.File.Games[0] + "." : mod.File.WakeNames.Length == 0 ? mod.File.Name + " is on." : mod.File.Name + " is on. She now answers to " + Mods.Listed(mod.File.WakeNames) + " too.", false);
                 return true;
