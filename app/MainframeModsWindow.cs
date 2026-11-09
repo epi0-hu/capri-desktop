@@ -168,8 +168,14 @@ namespace CapriDesktop
                             {
                                 try
                                 {
-                                    if (capri.ModList.Update(file, ModAsk) != null) done.Add(listing);
-                                    else kept.Add(listing);
+                                    // Checked against the mod that's in now, like the look's downloads were: one got here after its
+                                    // look failed was never checked, and a kept one may be older than a copy they imported since.
+                                    Mod mine = capri.ModList.All.Find(mod => string.Equals(mod.File.Id, listing.Id, StringComparison.OrdinalIgnoreCase));
+                                    if (ModDirectory.Above(file, mine))
+                                    {
+                                        if (capri.ModList.Update(file, ModAsk) != null) done.Add(listing);
+                                        else kept.Add(listing);
+                                    }
                                 }
                                 catch (Exception error)
                                 {

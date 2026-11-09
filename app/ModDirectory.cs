@@ -289,8 +289,7 @@ namespace CapriDesktop
                     newer.Add(listing);
                     continue;
                 }
-                int? order = Compare(Mods.VersionIn(file), mine != null ? mine.File.Version : null);
-                if (order.HasValue && order.Value <= 0)
+                if (!Above(file, mine))
                 {
                     Clean(file);
                     continue;
@@ -299,6 +298,13 @@ namespace CapriDesktop
                 newer.Add(listing);
             }
             return newer;
+        }
+
+        // Whether a downloaded copy is newer than the installed mod: its version is above, or either side has none.
+        internal static bool Above(string file, Mod mine)
+        {
+            int? order = Compare(Mods.VersionIn(file), mine != null && mine.File != null ? mine.File.Version : null);
+            return !order.HasValue || order.Value > 0;
         }
 
         // Which of two versions like 1.10.2 is higher, by their numbers in order, or null when either has no numbers.
