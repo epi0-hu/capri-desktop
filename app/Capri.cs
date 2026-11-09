@@ -50078,6 +50078,61 @@ namespace CapriDesktop
                 Mod again = mods.Update(skin("update-worn", "2"), ModAsk);
                 if (again == null || !again.On || again.File.Version != "2" || mods.All.Find(mod => mod.File.Id == "update-spare").On) throw new Exception("Updating the skin she wears took it off or put another on.");
                 checks.Add("PASS mod updates: updating a skin that's off leaves the one she's wearing on, and updating the one she wears keeps it on");
+
+                // Their own Far Names 3.0.0 against the directory's 1.0.0. Neither a check download that failed while she looked nor
+                // a download kept from before they imported their own may put the older copy over theirs.
+                foreach (Mod left in mods.All.ToArray()) mods.Remove(left);
+                FillMods();
+                byte[] directoryCopy = Encoding.UTF8.GetBytes("{\"format\":1,\"id\":\"far-names\",\"name\":\"Far Names\",\"version\":\"1.0.0\",\"wake_names\":[\"Nova\"]}");
+                string directorySha = ModDirectory.BlobSha(directoryCopy);
+                string listedEntry = "\"size\":" + settings.Length + ",\"sha\":\"" + settingsSha + "\"";
+                bool blobsDown = false;
+                Func<string, long, byte[]> directoryGet = ModDirectory.Get;
+                ModDirectory.Get = delegate(string url, long most)
+                {
+                    if (url.Contains("/trees/")) return Encoding.UTF8.GetBytes(Encoding.UTF8.GetString(directoryGet(url, most)).Replace(listedEntry, "\"size\":" + directoryCopy.Length + ",\"sha\":\"" + directorySha + "\""));
+                    if (url.EndsWith("blobs/" + directorySha, StringComparison.Ordinal)) { if (blobsDown) throw new WebException("stand-in"); return directoryCopy; }
+                    return directoryGet(url, most);
+                };
+                try
+                {
+                    string ownFolder = Path.Combine(old, "own");
+                    Directory.CreateDirectory(ownFolder);
+                    Func<string, string> own = delegate(string version)
+                    {
+                        string file = Path.Combine(ownFolder, "far-names-" + version + Mods.Extension);
+                        File.WriteAllText(file, "{\"format\":1,\"id\":\"far-names\",\"name\":\"Far Names\",\"version\":\"" + version + "\",\"wake_names\":[\"Mine\"]}");
+                        return file;
+                    };
+                    Func<string> ownVersion = delegate
+                    {
+                        Mod mine = mods.All.Find(mod => mod.File.Id == "far-names");
+                        return mine == null ? null : Mods.VersionIn(mine.Path);
+                    };
+                    if (!ImportMod(own("3.0.0")) || ownVersion() != "3.0.0") throw new Exception("Their own Far Names didn't import: " + modStatus.Text);
+                    blobsDown = true;
+                    PressUpdateMods();
+                    blobsDown = false;
+                    PressUpdateMods();
+                    if (ownVersion() != "3.0.0" || UpdateKeyShown != "Update mods") throw new Exception("After a failed check download, the directory's older copy went over their own: " + ownVersion() + " / " + UpdateKeyShown + " / " + modStatus.Text);
+                    checks.Add("PASS Update mods: when a download fails while she looks, the second press still checks the version, so the directory's older copy never replaces their own newer mod");
+
+                    if (!ImportMod(own("0.5")) || ownVersion() != "0.5") throw new Exception("Their older Far Names didn't import: " + modStatus.Text);
+                    PressUpdateMods();
+                    if (UpdateKeyShown != "Update 1") throw new Exception("The directory's 1.0.0 wasn't offered over 0.5: " + UpdateKeyShown + " / " + modStatus.Text);
+                    if (!ImportMod(own("3.0.0")) || ownVersion() != "3.0.0") throw new Exception("Their newer Far Names didn't import over the waiting update: " + modStatus.Text);
+                    if (UpdateKeyShown != "Update mods") throw new Exception("Importing their own copy left the waiting update on the key: " + UpdateKeyShown);
+                    PressUpdateMods();
+                    PressUpdateMods();
+                    if (ownVersion() != "3.0.0") throw new Exception("A download kept from before their import went over their newer mod: " + ownVersion() + " / " + modStatus.Text);
+                    checks.Add("PASS Update mods: importing their own copy drops the waiting update for it, so a download kept from the look never goes over it");
+                }
+                finally
+                {
+                    ModDirectory.Get = directoryGet;
+                    ModDirectory.Forget(modUpdates);
+                    modUpdates = null;
+                }
             }
             finally
             {
