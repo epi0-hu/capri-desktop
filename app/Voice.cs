@@ -2443,26 +2443,44 @@ namespace CapriDesktop
         }
     }
 
+    // A model she holds in memory only while she uses it (#214): once it's gone After ms without use it's due to rest, and using
+    // it again holds it again. Times are Environment.TickCount's, which wraps, so they're compared as a span.
     internal sealed class Lull
     {
         internal readonly int After;
+        private int usedAt;
+        private bool held;
 
         internal Lull(int after) { After = after; }
 
-        internal void Used(int now) { }
+        internal void Used(int now) { usedAt = now; held = true; }
 
-        internal bool Due(int now) { return false; }
+        internal bool Due(int now) { return held && unchecked((uint)(now - usedAt)) >= (uint)After; }
 
-        internal void Gone() { }
+        internal void Gone() { held = false; }
     }
 
     internal sealed class LocalVoice : IDisposable
     {
+        // After 10 minutes without a line her free voice lets its model go, and the next line loads it again.
         internal const int RestAfter = 10 * 60 * 1000;
+        private readonly Lull lull = new Lull(RestAfter);
 
-        internal bool Loaded { get { return false; } }
+        internal bool Loaded { get { lock (gate) return tts != IntPtr.Zero; } }
 
-        internal bool Rest(int now) { return false; }
+        // True when it let its model go. A line being made holds the voice, so she skips it then rather than wait on it.
+        internal bool Rest(int now)
+        {
+            if (!Monitor.TryEnter(gate)) return false;
+            try
+            {
+                if (tts == IntPtr.Zero || !lull.Due(now)) return false;
+                Close();
+                lull.Gone();
+                return true;
+            }
+            finally { Monitor.Exit(gate); }
+        }
 
         internal const string Pack = VoicePack.Name;
         internal static string PackUrl = VoicePack.Url;
@@ -2547,7 +2565,11 @@ namespace CapriDesktop
         internal void Warm()
         {
             FreeStyle style = Style;
-            lock (gate) Open(style.British);
+            lock (gate)
+            {
+                Open(style.British);
+                lull.Used(Environment.TickCount);
+            }
         }
 
         internal byte[] Speak(string text)
@@ -2578,6 +2600,7 @@ namespace CapriDesktop
                     if (audio != IntPtr.Zero) SherpaOnnxDestroyOfflineTtsGeneratedAudio(audio);
                     Marshal.FreeHGlobal(words);
                 }
+                lull.Used(Environment.TickCount);
             }
             return Voice.Wave(VoiceFx.Kokoro(pcm, rate, pitch, robot, glitch, VoiceFx.Seed(text), layers), rate);
         }

@@ -2758,6 +2758,7 @@ namespace CapriDesktop
                     presence.Show(preferences.NoDiscord ? null : Doing);
                 }
                 if (!testing && background) CheckHd(clock.Elapsed.TotalSeconds);
+                if (background) kokoro.Rest(Environment.TickCount);
                 StayOnTop();
                 if (background) CheckSeat(clock.Elapsed.TotalSeconds);
                 CheckChat(clock.Elapsed.TotalSeconds);
