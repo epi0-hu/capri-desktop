@@ -45612,13 +45612,29 @@ namespace CapriDesktop
                                 throw new Exception("Unpacking bzip2 without Windows' tar went wrong: " + (unpackedSha == trickySha) + " / " + emptyKept + " / " + cleaned + " / " + damagedProblem);
                             Directory.Delete(bunzipRoot, true);
                             checks.Add("PASS ears on Windows 10: when Windows' tar can't read bzip2, she unpacks that layer herself (block CRCs checked) and tar unpacks the rest; a damaged pack stops with an error");
+                            Lull lull = new Lull(LocalVoice.RestAfter);
+                            if (lull.Due(0) || lull.Due(int.MaxValue)) throw new Exception("A model that wasn't held was due to rest.");
+                            lull.Used(1000);
+                            if (lull.Due(1000) || lull.Due(1000 + LocalVoice.RestAfter - 1) || !lull.Due(1000 + LocalVoice.RestAfter) || !lull.Due(1000 + LocalVoice.RestAfter * 3)) throw new Exception("A held model was due to rest at the wrong time.");
+                            lull.Used(int.MaxValue - 1000);
+                            if (lull.Due(unchecked(int.MaxValue + 1000)) || !lull.Due(unchecked(int.MaxValue - 1000 + LocalVoice.RestAfter))) throw new Exception("A model's rest went wrong when Windows' tick count wrapped.");
+                            lull.Gone();
+                            if (lull.Due(unchecked(int.MaxValue - 1000 + LocalVoice.RestAfter))) throw new Exception("A model she let go was due to rest again.");
+                            if (new LocalVoice(Path.Combine(output, "no-free-voice")).Rest(Environment.TickCount + LocalVoice.RestAfter)) throw new Exception("A free voice that never loaded said it rested.");
+                            checks.Add("PASS model rest: a model she holds is due to rest after 10 minutes without use and not a moment before, one she isn't holding never is, and Windows' tick count wrapping doesn't upset it");
                             if (kokoro.Installed)
                             {
                                 byte[] freeLine = kokoro.Speak("Hey choom, this is my free voice.");
                                 if (freeLine == null || freeLine.Length < 24000) throw new Exception("Free voice made no sound: " + (freeLine == null ? "null" : freeLine.Length + " bytes"));
                                 checks.Add("PASS free voice speech: " + kokoro.Style.Name + " said a line, " + freeLine.Length + " bytes of WAV");
+                                int spoke = Environment.TickCount;
+                                if (!kokoro.Loaded || kokoro.Rest(spoke + LocalVoice.RestAfter - 60000) || !kokoro.Loaded) throw new Exception("Her free voice let its model go before 10 minutes without a line.");
+                                if (!kokoro.Rest(spoke + LocalVoice.RestAfter + 1000) || kokoro.Loaded) throw new Exception("Her free voice kept its model after 10 minutes without a line.");
+                                byte[] backLine = kokoro.Speak("And I'm back.");
+                                if (backLine == null || backLine.Length < 12000 || !kokoro.Loaded) throw new Exception("Her free voice didn't load its model again for the next line.");
+                                checks.Add("PASS free voice rest: after 10 minutes without a line her free voice lets its model go, and the next line loads it again");
                             }
-                            else checks.Add("LIMIT free voice synthesis not run; the voice pack is not installed on this PC");
+                            else checks.Add("LIMIT free voice synthesis and its rest not run; the voice pack is not installed on this PC");
                             checks.Add("PASS voice: key sealed with DPAPI, tags stripped, errors read, real HTTP round trips against a fake ElevenLabs (401 explained, audio fetched, the same line twice in a row fetched once), WAV cleanup, mouth from the audio, listing parse, voice and model picks, a blank Voice ID asks for one, forget");
                             mainframe.Close();
                             if (mainframe.IsDisposed || !mainframe.Visible || mainframe.WindowState != FormWindowState.Minimized) throw new Exception("Closing the Mainframe quit instead of minimizing.");

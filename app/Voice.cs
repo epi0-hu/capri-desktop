@@ -2443,8 +2443,27 @@ namespace CapriDesktop
         }
     }
 
+    internal sealed class Lull
+    {
+        internal readonly int After;
+
+        internal Lull(int after) { After = after; }
+
+        internal void Used(int now) { }
+
+        internal bool Due(int now) { return false; }
+
+        internal void Gone() { }
+    }
+
     internal sealed class LocalVoice : IDisposable
     {
+        internal const int RestAfter = 10 * 60 * 1000;
+
+        internal bool Loaded { get { return false; } }
+
+        internal bool Rest(int now) { return false; }
+
         internal const string Pack = VoicePack.Name;
         internal static string PackUrl = VoicePack.Url;
         internal static string PackSha = VoicePack.Sha;
