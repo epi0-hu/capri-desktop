@@ -2810,6 +2810,25 @@ namespace CapriDesktop
         private static string clipFrom;
         private static float[] clipSound;
         private static int clipRate;
+        // After 10 minutes without a line the voice model file and its clip go, and the next line loads them again.
+        internal const int RestAfter = 10 * 60 * 1000;
+        private static readonly Lull lull = new Lull(RestAfter);
+
+        // True when it let the model go. A line being made holds it, so she skips it then rather than wait on it.
+        internal static bool Rest(int now)
+        {
+            if (!Monitor.TryEnter(gate)) return false;
+            try
+            {
+                if (tts == IntPtr.Zero || !lull.Due(now)) return false;
+                Close();
+                clipFrom = null;
+                clipSound = null;
+                lull.Gone();
+                return true;
+            }
+            finally { Monitor.Exit(gate); }
+        }
 
         // What a folder holds: "kokoro", "kitten", "pocket" or "vits", or null when it's no model she can run.
         internal static string Kind(string folder)
@@ -3020,6 +3039,7 @@ namespace CapriDesktop
             lock (gate)
             {
                 string kind = Open(folder, lang);
+                lull.Used(Environment.TickCount);
                 IntPtr words = LocalVoice.Utf8(text);
                 IntPtr audio = IntPtr.Zero;
                 try

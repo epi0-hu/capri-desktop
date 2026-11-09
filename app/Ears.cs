@@ -2017,13 +2017,41 @@ namespace CapriDesktop
             catch (System.ComponentModel.Win32Exception) { throw new IOException("Windows tar wouldn't stop."); }
         }
 
-        internal void Warm() { lock (gate) Open(); }
+        // After 10 minutes without hearing anything her own ears let their model go, about 650 MB, and the next line loads it again.
+        internal const int RestAfter = 10 * 60 * 1000;
+        private readonly Lull lull = new Lull(RestAfter);
+
+        internal bool Loaded { get { lock (gate) return recognizer != IntPtr.Zero; } }
+
+        // True when they let their model go. A line being heard holds them, so she skips it then rather than wait on it.
+        internal bool Rest(int now)
+        {
+            if (!Monitor.TryEnter(gate)) return false;
+            try
+            {
+                if (recognizer == IntPtr.Zero || !lull.Due(now)) return false;
+                Close();
+                lull.Gone();
+                return true;
+            }
+            finally { Monitor.Exit(gate); }
+        }
+
+        internal void Warm()
+        {
+            lock (gate)
+            {
+                Open();
+                lull.Used(Environment.TickCount);
+            }
+        }
 
         internal string Hear(short[] samples)
         {
             lock (gate)
             {
                 Open();
+                lull.Used(Environment.TickCount);
                 IntPtr stream = SherpaOnnxCreateOfflineStream(recognizer);
                 if (stream == IntPtr.Zero) throw new IOException("Her ears glitched.");
                 IntPtr result = IntPtr.Zero;

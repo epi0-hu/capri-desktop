@@ -2758,7 +2758,7 @@ namespace CapriDesktop
                     presence.Show(preferences.NoDiscord ? null : Doing);
                 }
                 if (!testing && background) CheckHd(clock.Elapsed.TotalSeconds);
-                if (background) kokoro.Rest(Environment.TickCount);
+                if (background) RestModels(Environment.TickCount);
                 StayOnTop();
                 if (background) CheckSeat(clock.Elapsed.TotalSeconds);
                 CheckChat(clock.Elapsed.TotalSeconds);
@@ -11641,6 +11641,15 @@ namespace CapriDesktop
             hdChecked = now;
             if (wakingHd || !qwen.Awake) return;
             if (!preferences.HdVoice || preferences.Silent || now - hdUsed > HdRest || HdStepsAside()) qwen.Stop();
+        }
+
+        // Her free voice, a voice model file and her own ears each let their model go after 10 minutes unused, and come back the
+        // next time she needs them (#214). In voice chat her ears stay in, so what they say next never waits for them to load.
+        private void RestModels(int now)
+        {
+            kokoro.Rest(now);
+            ModelFile.Rest(now);
+            if (!chatting) parakeet.Rest(now);
         }
 
         // Only with Free voice in games on does a full-screen game or video send her back to her free voice.
@@ -45636,6 +45645,19 @@ namespace CapriDesktop
                                 checks.Add("PASS free voice rest: after 10 minutes without a line her free voice lets its model go, and the next line loads it again");
                             }
                             else checks.Add("LIMIT free voice synthesis and its rest not run; the voice pack is not installed on this PC");
+                            if (new LocalEars(Path.Combine(output, "no-ears")).Rest(Environment.TickCount + LocalEars.RestAfter)) throw new Exception("Ears that never loaded said they rested.");
+                            if (parakeet.Ready)
+                            {
+                                parakeet.Hear(new short[Ears.Rate]);
+                                int heardAt = Environment.TickCount;
+                                if (!parakeet.Loaded || parakeet.Rest(heardAt + LocalEars.RestAfter - 60000) || !parakeet.Loaded) throw new Exception("Her ears let their model go before 10 minutes without hearing anything.");
+                                if (!parakeet.Rest(heardAt + LocalEars.RestAfter + 1000) || parakeet.Loaded) throw new Exception("Her ears kept their model after 10 minutes without hearing anything.");
+                                parakeet.Hear(new short[Ears.Rate]);
+                                if (!parakeet.Loaded) throw new Exception("Her ears didn't load their model again for the next line.");
+                                parakeet.Dispose();
+                                checks.Add("PASS ears rest: after 10 minutes without hearing anything her own ears let their model go, and the next line loads it again");
+                            }
+                            else checks.Add("LIMIT her own ears' rest not run; her ears pack is not installed on this PC");
                             checks.Add("PASS voice: key sealed with DPAPI, tags stripped, errors read, real HTTP round trips against a fake ElevenLabs (401 explained, audio fetched, the same line twice in a row fetched once), WAV cleanup, mouth from the audio, listing parse, voice and model picks, a blank Voice ID asks for one, forget");
                             mainframe.Close();
                             if (mainframe.IsDisposed || !mainframe.Visible || mainframe.WindowState != FormWindowState.Minimized) throw new Exception("Closing the Mainframe quit instead of minimizing.");
